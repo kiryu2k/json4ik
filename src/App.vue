@@ -15,6 +15,7 @@
   const output = ref('')
   const error = ref('')
   const copied = ref(false)
+  const goTags = ref(true)
 
   const hasOutput = computed(() => output.value.length > 0)
 
@@ -93,6 +94,153 @@
     error.value = ''
     copied.value = false
   }
+
+  const generateGo = () => {
+    const parsed = parseJson()
+
+    if (parsed === null) {
+      output.value = ''
+      return
+    }
+
+    output.value = jsonToGo(parsed, 'Root', goTags.value)
+  }
+
+  const jsonToGo = (
+    value: unknown,
+    typeName: string,
+    withTags: boolean
+  ): string => {
+    if (Array.isArray(value)) {
+      if (value.length === 0) {
+        return `type ${typeName} []any`
+      }
+
+      const item = value[0]
+
+      if (typeof item === 'object' && item !== null && !Array.isArray(item)) {
+        const childName = `${typeName}Item`
+        const childType = jsonToGo(item, childName, withTags)
+
+        return `${childType}\n\ntype ${typeName} []${childName}`
+      }
+
+      return `type ${typeName} []${getGoType(item)}`
+    }
+
+    if (typeof value === 'object' && value !== null) {
+      const fields = Object.entries(value)
+        .map(([key, val]) => {
+          const fieldName = toGoName(key)
+          const fieldTypeName = toGoTypeName(key)
+
+          let goType: string
+
+          if (Array.isArray(val)) {
+            if (val.length === 0) {
+              goType = '[]any'
+            } else if (
+              typeof val[0] === 'object' &&
+              val[0] !== null &&
+              !Array.isArray(val[0])
+            ) {
+              goType = `[]${fieldTypeName}`
+            } else {
+              goType = `[]${getGoType(val[0])}`
+            }
+          } else if (
+            typeof val === 'object' &&
+            val !== null
+          ) {
+            goType = fieldTypeName
+          } else {
+            goType = getGoType(val)
+          }
+
+          const tag = withTags
+            ? ` \`json:"${key}"\``
+            : ''
+
+          return `\t${fieldName} ${goType}${tag}`
+        })
+        .join('\n')
+
+      const nestedTypes = Object.entries(value)
+        .filter(
+          ([, val]) =>
+            typeof val === 'object' &&
+            val !== null &&
+            !Array.isArray(val)
+        )
+        .map(([key, val]) =>
+          jsonToGo(val, toGoTypeName(key), withTags)
+        )
+
+      const arrayObjectTypes = Object.entries(value)
+        .filter(
+          ([, val]) =>
+            Array.isArray(val) &&
+            val.length > 0 &&
+            typeof val[0] === 'object' &&
+            val[0] !== null &&
+            !Array.isArray(val[0])
+        )
+        .map(([key, val]) =>
+          jsonToGo(
+            val[0],
+            toGoTypeName(key),
+            withTags
+          )
+        )
+
+      const nested =
+        [...nestedTypes, ...arrayObjectTypes].join('\n\n')
+
+      const current = `type ${typeName} struct {\n${fields}\n}`
+
+      return nested ? `${current}\n\n${nested}` : current
+    }
+
+    return `type ${typeName} ${getGoType(value)}`
+  }
+
+  const getGoType = (value: unknown): string => {
+    if (value === null) {
+      return 'any'
+    }
+
+    if (typeof value === 'string') {
+      return 'string'
+    }
+
+    if (typeof value === 'boolean') {
+      return 'bool'
+    }
+
+    if (typeof value === 'number') {
+      return Number.isInteger(value) ? 'int' : 'float64'
+    }
+
+    return 'any'
+  }
+
+  const toGoName = (value: string): string => {
+    const words = value
+      .replace(/([a-z])([A-Z])/g, '$1 $2')
+      .replace(/[^a-zA-Z0-9]+/g, ' ')
+      .trim()
+      .split(/\s+/)
+
+    const name = words
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+      .join('')
+
+    return name || 'Field'
+  }
+
+  const toGoTypeName = (value: string): string => {
+    return toGoName(value)
+  }
 </script>
 
 <template>
@@ -148,6 +296,20 @@
             <span>{{ copied ? '✓' : '□' }}</span>
             {{ copied ? 'copied!' : 'copy' }}
           </button>
+
+          <div class="go-type-wrapper">
+            <button class="button" @click="generateGo">
+              go type
+            </button>
+
+            <label class="go-options">
+              <input v-model="goTags" type="checkbox" />
+
+              <span class="checkbox"></span>
+
+              <span>JSON tags</span>
+            </label>
+          </div>
         </div>
 
         <div class="status" :class="{
