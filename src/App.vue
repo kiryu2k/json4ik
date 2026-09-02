@@ -88,6 +88,30 @@
     }
   }
 
+  const unquoteJson = () => {
+    try {
+      const parsed = JSON.parse(input.value)
+
+      if (typeof parsed !== 'string') {
+        error.value = 'Input is not a quoted JSON string'
+        output.value = ''
+        return
+      }
+
+      const unquoted = JSON.parse(parsed)
+      output.value = JSON.stringify(unquoted, null, 2)
+      error.value = ''
+    } catch (err) {
+      if (err instanceof SyntaxError) {
+        error.value = `Invalid JSON: ${err.message}`
+      } else {
+        error.value = 'Failed to unquote JSON'
+      }
+
+      output.value = ''
+    }
+  }
+
   const clearAll = () => {
     input.value = ''
     output.value = ''
@@ -290,6 +314,11 @@
           <button class="button" @click="minifyJson">
             <span>≡</span>
             minify
+          </button>
+
+          <button class="button" @click="unquoteJson">
+            <span>↗</span>
+            unquote
           </button>
 
           <button class="button" :disabled="!hasOutput" @click="copyJson">
